@@ -14,9 +14,9 @@ import google.generativeai as genai
 # CONFIGURACIÓN DE SEGURIDAD (BACKEND / NUBE)
 # ==========================================
 try:
-    GOOGLE_API_KEY = st.secrets["AIzaSyCXrLSXeHk8FWzMsFK8EVrHE8FnNjm4NLY"]
+    GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 except:
-    GOOGLE_API_KEY = "PONE_TU_CLAVE_AQUI" # Pon tu clave aquí para uso local en VS Code
+    GOOGLE_API_KEY = "PONE_TU_CLAVE_AQUI"
 
 # ==========================================
 # 1. CONFIGURACIÓN VISUAL Y CSS AVANZADO
