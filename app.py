@@ -11,16 +11,12 @@ from datetime import timedelta
 import google.generativeai as genai
 
 # ==========================================
-# CONFIGURACIÓN DE SEGURIDAD (BACKEND)
-# ==========================================
-# ==========================================
 # CONFIGURACIÓN DE SEGURIDAD (BACKEND / NUBE)
 # ==========================================
-# La app intentará leer la clave secreta de la nube. Si estás en tu PC local, usará la tuya.
 try:
-    GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
+    GOOGLE_API_KEY = st.secrets["AIzaSyCXrLSXeHk8FWzMsFK8EVrHE8FnNjm4NLY"]
 except:
-    GOOGLE_API_KEY = "PONE_TU_CLAVE_AQUI" # Pon tu clave aquí para cuando pruebes en tu PC
+    GOOGLE_API_KEY = "PONE_TU_CLAVE_AQUI" # Pon tu clave aquí para uso local en VS Code
 
 # ==========================================
 # 1. CONFIGURACIÓN VISUAL Y CSS AVANZADO
@@ -40,7 +36,6 @@ st.markdown("""
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
     }
-    /* Hacemos que los botones de eliminar sean más sutiles */
     .stButton > button {
         padding: 0px 5px !important;
     }
@@ -61,10 +56,8 @@ def calcular_atenuacion_db(probabilidad, frecuencia_ghz, distancia_km):
         40: (0.3100, 0.929),   # Banda V
         80: (0.8606, 0.7656)   # Banda E
     }
-    
     if frecuencia_ghz not in coeficientes:
         frecuencia_ghz = 15
-
     k, alpha = coeficientes[frecuencia_ghz]
     
     atenuacion_array =[]
@@ -76,11 +69,10 @@ def calcular_atenuacion_db(probabilidad, frecuencia_ghz, distancia_km):
         else:
             atenuacion_total = 0.0
         atenuacion_array.append(atenuacion_total)
-        
     return atenuacion_array
 
 # ==========================================
-# 3. GESTOR DE ALMACENAMIENTO PERMANENTE Y NUBE
+# 3. GESTOR DE ALMACENAMIENTO PERMANENTE
 # ==========================================
 if not os.path.exists('data'):
     os.makedirs('data')
@@ -104,12 +96,9 @@ def obtener_inventario_local():
                 if linea_datos:
                     fecha_str = linea_datos.split(',')[0].replace('"', '')
                     ano = fecha_str[:4] 
-                    if not ano.isdigit():
-                        ano = "Desconocidos"
-                else:
-                    ano = "Vacíos"
-        except Exception:
-            ano = "Errores"
+                    if not ano.isdigit(): ano = "Desconocidos"
+                else: ano = "Vacíos"
+        except: ano = "Errores"
             
         if ano not in inventario:
             inventario[ano] = []
@@ -153,16 +142,15 @@ def cargar_y_preparar_datos():
     data_completa['Periodo_Mensual'] = data_completa['Ano'] + " - Mes " + data_completa['Mes']
     data_completa['Periodo_Estacional'] = data_completa['Ano'] + " - " + data_completa['Estacion']
     data_completa['Periodo_Anual'] = data_completa['Ano']
-    
     data_completa['Es_Lluvia'] = np.where((data_completa['RH'] > 85), 1, 0)
     return data_completa
 
 # ==========================================
-# 4. INTELIGENCIA ARTIFICIAL MATEMÁTICA
+# 4. INTELIGENCIA ARTIFICIAL MATEMÁTICA (TRIPLE)
 # ==========================================
 @st.cache_resource
-def entrenar_modelos_duales(df):
-    df_clean = df.dropna(subset=['Mes_Num', 'Dia', 'Hora', 'Es_Lluvia', 'TempA']).copy()
+def entrenar_modelos_completos(df):
+    df_clean = df.dropna(subset=['Mes_Num', 'Dia', 'Hora', 'Es_Lluvia', 'TempA', 'RH']).copy()
     X = df_clean[['Mes_Num', 'Dia', 'Hora']]
     
     y_lluvia = df_clean['Es_Lluvia']
@@ -172,8 +160,13 @@ def entrenar_modelos_duales(df):
     y_temp = df_clean['TempA']
     modelo_temp = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=12)
     modelo_temp.fit(X, y_temp)
+
+    # NUEVA IA: Para predecir el RH (Humedad Relativa) en el cuadro flotante
+    y_rh = df_clean['RH']
+    modelo_rh = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=12)
+    modelo_rh.fit(X, y_rh)
     
-    return modelo_lluvia, modelo_temp
+    return modelo_lluvia, modelo_temp, modelo_rh
 
 # ==========================================
 # 5. FRONTEND E INTERFAZ PRINCIPAL
@@ -189,7 +182,7 @@ distancia_link = st.sidebar.slider("Distancia del enlace (Km):", 1.0, 50.0, 10.0
 st.sidebar.info(
     "**💡 ¿Qué significan estos valores?**\n\n"
     "🔹 **GHz (Frecuencia):** Es el 'tamaño' de la onda de radio. Frecuencias muy altas (como 40 u 80 GHz) permiten enviar datos rapidísimo (5G), pero son tan frágiles que **chocan con las gotas de lluvia** y se atenúan.\n\n"
-    "🔹 **Km (Distancia):** Separación física entre ambas antenas. A mayor distancia, la señal debe atravesar más cantidad de lluvia en el aire, aumentando drásticamente la pérdida de señal."
+    "🔹 **Km (Distancia):** Separación física entre ambas antenas. A mayor distancia, la señal debe atravesar más cantidad de lluvia en el aire."
 )
 
 st.sidebar.markdown("---")
@@ -203,19 +196,16 @@ if archivos_subidos:
         st.rerun()
 
 inventario_archivos = obtener_inventario_local()
-
 if inventario_archivos:
     total_archivos = sum([len(v) for v in inventario_archivos.values()])
     st.sidebar.success(f"🟢 Storage OK: **{total_archivos} registros** activos.")
-    
     for ano in sorted(inventario_archivos.keys(), reverse=True):
         archivos_ano = inventario_archivos[ano]
         with st.sidebar.expander(f"📁 Año {ano} ({len(archivos_ano)} archivos)"):
             for arch in archivos_ano:
-                col_nombre, col_boton = st.columns([5, 1])
-                col_nombre.markdown(f"<span style='font-size:12px;'>{arch['nombre']}</span>", unsafe_allow_html=True)
-                
-                if col_boton.button("❌", key=f"del_{arch['ruta']}", help="Eliminar archivo permanentemente"):
+                col_n, col_b = st.columns([5, 1])
+                col_n.markdown(f"<span style='font-size:12px;'>{arch['nombre']}</span>", unsafe_allow_html=True)
+                if col_b.button("❌", key=f"del_{arch['ruta']}", help="Eliminar permanentemente"):
                     os.remove(arch['ruta'])
                     st.cache_data.clear() 
                     st.rerun() 
@@ -266,7 +256,7 @@ else:
         fig.update_layout(title=f"Telemetría en Radiocomunicaciones - {periodo_elegido}", template="plotly_dark", hovermode="x unified")
         st.plotly_chart(fig, use_container_width=True)
 
-        with st.expander("🔍 Mostrar Mapa Científico de Correlaciones (Ingeniería de Datos)"):
+        with st.expander("🔍 Mostrar Mapa Científico de Correlaciones"):
             cols_corr =[c for c in['TempA', 'RH', 'PBar'] if c in df_plot.columns]
             if len(cols_corr) > 1:
                 corr_matrix = df_plot[cols_corr].corr()
@@ -274,7 +264,7 @@ else:
                 fig_corr.update_layout(template="plotly_dark")
                 st.plotly_chart(fig_corr, use_container_width=True)
 
-    # ------------------ PESTAÑA 2: PREDICCION FÍSICA Y GRÁFICO ------------------
+    # ------------------ PESTAÑA 2: PREDICCION FÍSICA Y GRÁFICO (CON TOOLTIPS MEJORADOS) ------------------
     with tab2:
         st.subheader("Simulador Predictivo de Interrupciones (Link Budget)")
         
@@ -284,7 +274,8 @@ else:
         dias_futuro = (30 if tipo_prediccion == "Proyección a Meses" else 365) * horizonte
         
         if st.button("🚀 Iniciar Simulador Estocástico"):
-            modelo_lluvia, modelo_temp = entrenar_modelos_duales(df_main)
+            # 3 Inteligencias artificiales procesando el futuro
+            modelo_lluvia, modelo_temp, modelo_rh = entrenar_modelos_completos(df_main)
             
             fecha_fin = df_main['TIMESTAMP'].max() + timedelta(days=dias_futuro)
             fechas_futuras = pd.date_range(start=df_main['TIMESTAMP'].max(), end=fecha_fin, freq='h')
@@ -297,16 +288,24 @@ else:
             df_f['Prob_Alta'] = modelo_lluvia.predict_proba(df_f[['Mes_Num', 'Dia', 'Hora']])[:, 1] * 100
             df_f['Semaforo_Riesgo'] = modelo_lluvia.predict(df_f[['Mes_Num', 'Dia', 'Hora']])
             df_f['Temp_Pred'] = modelo_temp.predict(df_f[['Mes_Num', 'Dia', 'Hora']])
+            df_f['RH_Pred'] = modelo_rh.predict(df_f[['Mes_Num', 'Dia', 'Hora']])
             
             df_f['Atenuacion_dB'] = calcular_atenuacion_db(df_f['Prob_Alta'], freq_seleccionada, distancia_link)
             
+            # Resumen diario para pintar la gráfica y las alertas flotantes
             df_res = df_f.resample('d', on='TIMESTAMP').agg({
                 'Prob_Alta': 'max', 
                 'Semaforo_Riesgo': 'max',
                 'Temp_Pred': 'mean',
+                'RH_Pred': 'max', # Queremos saber la humedad pico (el RH máximo del día)
                 'Atenuacion_dB': 'max' 
             }).reset_index()
             
+            # Formateamos los datos flotantes de antemano para el HoverTemplate (Tooltip)
+            df_res['RH_Str'] = df_res['RH_Pred'].map('{:.1f}'.format)
+            df_res['Estado_Str'] = np.where(df_res['Semaforo_Riesgo'] == 1, '🚨 CRÍTICO', '✅ Operativo')
+            custom_hover_data = np.stack((df_res['RH_Str'], df_res['Estado_Str']), axis=-1)
+
             t_lluvias = df_res['Semaforo_Riesgo'].sum()
             f_lluvias = df_res[df_res['Semaforo_Riesgo']==1]['TIMESTAMP'].dt.strftime('%d/%m/%Y').tolist()
             prob_baja = df_res[df_res['Semaforo_Riesgo']==0]['Prob_Alta'].mean()
@@ -328,14 +327,55 @@ else:
             
             fig2 = make_subplots(specs=[[{"secondary_y": True}]])
             
-            fig2.add_trace(go.Scatter(x=df_res['TIMESTAMP'], y=df_res['Prob_Alta'], name="Prob. Lluvia (%)", fill='tozeroy', mode='lines', line=dict(color='#00b4d8', width=3)), secondary_y=False)
-            fig2.add_trace(go.Scatter(x=df_res['TIMESTAMP'], y=df_res['Atenuacion_dB'], name="Pérdida de Señal (dB)", mode='lines', line=dict(color='#9d4edd', width=4, dash='dash')), secondary_y=False)
-            fig2.add_trace(go.Scatter(x=df_res['TIMESTAMP'], y=df_res['Temp_Pred'], name="Temperatura Prevista (°C)", mode='lines', line=dict(color='#ffaa00', width=3)), secondary_y=True)
+            # 1. Ola Azul (Corregida con los textos exactos para el usuario)
+            fig2.add_trace(
+                go.Scatter(
+                    x=df_res['TIMESTAMP'], y=df_res['Prob_Alta'], 
+                    name="Probabilidad de Lluvia", fill='tozeroy', mode='lines', 
+                    line=dict(color='#00b4d8', width=3),
+                    customdata=custom_hover_data,
+                    hovertemplate=(
+                        "<b>Prob. de Lluvia:</b> %{y:.1f}%<br>"
+                        "<b>Humedad Max (RH):</b> %{customdata[0]}%<br>"
+                        "<b>Estado Físico:</b> %{customdata[1]}<extra></extra>"
+                    )
+                ), secondary_y=False
+            )
+            
+            fig2.add_trace(
+                go.Scatter(
+                    x=df_res['TIMESTAMP'], y=df_res['Atenuacion_dB'], 
+                    name="Pérdida de Señal (dB)", mode='lines', 
+                    line=dict(color='#9d4edd', width=4, dash='dash'),
+                    hovertemplate="<b>Pérdida Calculada:</b> %{y:.2f} dB<extra></extra>"
+                ), secondary_y=False
+            )
+            
+            fig2.add_trace(
+                go.Scatter(
+                    x=df_res['TIMESTAMP'], y=df_res['Temp_Pred'], 
+                    name="Temperatura (°C)", mode='lines', 
+                    line=dict(color='#ffaa00', width=3),
+                    hovertemplate="<b>Temp. Atmosférica:</b> %{y:.1f} °C<extra></extra>"
+                ), secondary_y=True
+            )
             
             dias_crit = df_res[df_res['Semaforo_Riesgo'] == 1]
-            fig2.add_trace(go.Scatter(x=dias_crit['TIMESTAMP'], y=dias_crit['Prob_Alta'], mode='markers', name='Fading Crítico Confirmado', marker=dict(color='#ff0033', size=14, symbol='triangle-down', line=dict(width=2, color='white'))), secondary_y=False)
+            fig2.add_trace(
+                go.Scatter(
+                    x=dias_crit['TIMESTAMP'], y=dias_crit['Prob_Alta'], 
+                    mode='markers', name='Fading Crítico Registrado', 
+                    marker=dict(color='#ff0033', size=14, symbol='triangle-down', line=dict(width=2, color='white')),
+                    hoverinfo='skip' # Desactivamos para que no repita info en el cuadro negro flotante
+                ), secondary_y=False
+            )
             
-            fig2.update_layout(template="plotly_dark", hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1))
+            fig2.update_layout(
+                template="plotly_dark", 
+                hovermode="x unified", 
+                hoverlabel=dict(bgcolor="rgba(10, 10, 10, 0.9)", font_size=15, font_family="Arial"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1)
+            )
             
             techo_dinamico = max(105, df_res['Atenuacion_dB'].max() + 15)
             fig2.update_yaxes(title_text="<b>Pico de Riesgo Diario (%) / Pérdida (dB)</b>", range=[0, techo_dinamico], color="#00b4d8", secondary_y=False)
@@ -344,14 +384,13 @@ else:
             st.plotly_chart(fig2, use_container_width=True)
 
             st.info("💡 **Cómo interpretar los resultados técnicos:**\n\n"
-                    "🔹 **La Ola Azul:** Es la probabilidad máxima diaria de que exista alta precipitación.\n\n"
-                    "🔹 **La Línea Morada Punteada:** Es la atenuación física calculada en **Decibeles (dB)** usando el modelo matemático UIT-R. Si cruza el techo de 100, la gráfica escalará automáticamente.\n\n"
-                    "🔹 **La Línea Dorada:** Temperatura del ambiente calculada de forma independiente.\n\n"
-                    "🔻 **Triángulos Invertidos:** Marcan los días exactos donde se sugiere activar redundancia en la red por falla crítica inminente.")
+                    "🔹 **La Ola Azul:** Es la probabilidad máxima diaria de lluvia extrema.\n\n"
+                    "🔹 **La Línea Morada Punteada:** Atenuación física calculada en **Decibeles (dB)** usando el modelo matemático UIT-R. Depende de la frecuencia y los kilómetros.\n\n"
+                    "🔹 **La Línea Dorada:** Temperatura del ambiente calculada.\n\n"
+                    "🔻 **Triángulos Invertidos:** Marcan los días críticos de Fading o Corte de Red.")
 
-            st.markdown("#### 💾 Extracción de Resultados Numéricos")
             csv = df_res.to_csv(index=False).encode('utf-8')
-            st.download_button(label="📥 Descargar Predicciones de Radiocomunicaciones (CSV)", data=csv, file_name='Prediccion_Radiocomunicaciones_RF.csv', mime='text/csv')
+            st.download_button(label="📥 Descargar Base de Datos Predictiva (CSV)", data=csv, file_name='Prediccion_Radiocomunicaciones_RF.csv', mime='text/csv')
 
     # ------------------ PESTAÑA 3: GEMINI Y ACTA OFICIAL ------------------
     with tab3:
