@@ -1,7 +1,13 @@
 streamlit
+
 pandas
+
 numpy
+
 plotly
+
 scikit-learn
-google-generativeai
+
 openpyxl
+
+google-generativeai
