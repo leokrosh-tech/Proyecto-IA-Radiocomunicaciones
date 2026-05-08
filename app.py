@@ -15,10 +15,6 @@ import google.generativeai as genai
 # ==========================================
 # CONFIGURACIÓN DE SEGURIDAD
 # ==========================================
-# Puedes poner tu key en:
-# 1) .streamlit/secrets.toml -> GOOGLE_API_KEY="TU_KEY"
-# 2) Variable de entorno GOOGLE_API_KEY
-# 3) Directo aquí, reemplazando PONE_TU_CLAVE_AQUI
 try:
     GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 except Exception:
